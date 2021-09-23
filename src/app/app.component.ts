@@ -34,7 +34,7 @@ export class AppComponent implements OnInit {
         BR: "┌",
     };
     public readonly colors = [
-        "RED", "BLUE",
+        "RED", "BLUE", "YELLOW", "PURPLE", "GREEN", "ORANGE", "BLACK", "WHITE"
     ];
 
     public level: any = {};
@@ -66,8 +66,8 @@ export class AppComponent implements OnInit {
     }
 
     contsructLevelGraph(level: any) {
-        const V = {};
-        const E = new Set();
+        const V: any = {};
+        const E = new Set<string>();
         for (let j = 0; j < level.grid_size[1]; j++) {
             for (let i = 0; i < level.grid_size[0]; i++) {
                 const v: string = `CELL${i},${j}`;
@@ -81,7 +81,7 @@ export class AppComponent implements OnInit {
                 V[v].neighbours.forEach(n => E.add(this._edgeFromNodes(v, n)))
             }
         }
-        this.level.graph = {V, E};
+        this.level.graph = <Graph>{V, E};
     }
 
     defineSatConstraints(level: any) {
@@ -107,20 +107,6 @@ export class AppComponent implements OnInit {
                     neighbouringEdges.forEach(e => {
                         // forbid terminal edges to have non terminal color
                         this.solver.forbid(this.colors.filter(c => c !== cellData.color).map(c => `${e},${c}`))
-
-                        if (this.types.END !== cellData.type) {
-                            // return
-                        }
-
-                        const n = this._nodesFromEdge(e).find(node => node !== cell);
-                        // edge connected to a correctly colored node for end cells
-                        this.solver.require(Logic.equiv(
-                            `${e},${cellData.color}`,
-                            Logic.exactlyOne(
-                                `${n},${cellData.color}`,
-                                `${n},INVERT`,
-                            )
-                        ))
                     })
                     continue;
                 }
@@ -147,20 +133,30 @@ export class AppComponent implements OnInit {
                 // one color per empty cell
                 this.solver.require(Logic.exactlyOne(this.colors.map(c => `${cell},${c}`)));
 
+                const ensureSetsOfTwo = []
+                const atleastTwo = []
                 // at least 2 edges of the color of the cell
                 this.colors.forEach(c => {
-                    let atleastTwo = combinations(neighbouringEdges, neighbouringEdges.length - 1, neighbouringEdges.length - 1);
-                    atleastTwo = atleastTwo.map(tuple => Logic.or(tuple.map(e => `${e},${c}`)));
+                    atleastTwo.push(Logic.equiv(
+                        `${cell},${c}`,
+                        combinations(neighbouringEdges, neighbouringEdges.length - 1, neighbouringEdges.length - 1)
+                            .map(tuple => Logic.or(tuple.map(e => `${e},${c}`)))
+                    ));
 
-                    let atMostTwo = [];
-                    if (neighbouringEdges.length > 2) {
-                        atMostTwo = combinations(neighbouringEdges, 3, 3);
-                        atMostTwo = atMostTwo.map(tuple => Logic.or(tuple.map(e => `-${e},${c}`)));
+                    if (neighbouringEdges.length === 4) {
+                        // if it has different color edges they must be sets of 2
+                        ensureSetsOfTwo.push(...neighbouringEdges.map(e => Logic.equiv(
+                            `${e},${c}`,
+                            Logic.or(neighbouringEdges.filter(e2 => e2 !== e).map(e2 => `${e2}${c}`))
+                        )));
                     }
 
 
-                    this.solver.require(Logic.equiv(`${cell},${c}`, Logic.and(...atleastTwo, ...atMostTwo)))
                 })
+                if (ensureSetsOfTwo.length) {
+                    this.solver.require(ensureSetsOfTwo);
+                }
+                this.solver.require(atleastTwo);
             }
         }
 
@@ -275,4 +271,13 @@ export class AppComponent implements OnInit {
     private _nodesFromEdge(e: string): string[] {
         return e.split("_").splice(1);
     }
+}
+
+interface Graph {
+    V: Record<string, {
+        type?: number,
+        color?: string,
+        neighbours?: string[]
+    }>;
+    E: Set<string>;
 }

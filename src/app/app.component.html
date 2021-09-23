@@ -26,9 +26,9 @@
              *ngFor="let row of level.grid_size[0]|NumberNgFor; let i = index">
 
             <ng-container [ngSwitch]="level.cells[i + ',' + j]?.type">
-                <i class="la la-2x la-adjust" *ngSwitchCase="types.NEGATIVE"></i>
-                <i class="lar la-2x la-dot-circle" *ngSwitchCase="types.START"></i>
-                <i class="lar la-2x la-circle" *ngSwitchCase="types.END"></i>
+                <i class="la la-2x la-adjust" *ngSwitchCase="types.NEGATIVE">I</i>
+                <i class="lar la-2x la-dot-circle" *ngSwitchCase="types.START">O</i>
+                <i class="lar la-2x la-circle" *ngSwitchCase="types.END">X</i>
                 <span *ngSwitchDefault></span>
             </ng-container>
             <br>

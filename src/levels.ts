@@ -8,7 +8,7 @@ export const levels = [
             },
             {
                 "color": "RED",
-                "position": "(1, 2)",
+                "position": "(1, 1)",
                 "type": 1
             },
             {
@@ -23,7 +23,7 @@ export const levels = [
             }
         ],
         "completed": true,
-        "grid_size": "(4, 4)",
+        "grid_size": "(3, 3)",
         "locked": false
     },
     {
