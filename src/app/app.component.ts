@@ -1,6 +1,6 @@
 import {Component, OnInit} from '@angular/core';
 import {levels} from "src/levels"
-import {reduce, cloneDeep} from "lodash";
+import {reduce, cloneDeep, flattenDeep} from "lodash";
 import * as Logic from "logic-solver"
 import * as combinations from "combinations";
 
@@ -61,7 +61,7 @@ export class AppComponent implements OnInit {
         this.level = level
 
         this.contsructLevelGraph(this.level);
-        this.solution = this.defineSatConstraints(this.level);
+        this.defineSatConstraints(this.level);
         this.solveBoard();
     }
 
@@ -86,89 +86,16 @@ export class AppComponent implements OnInit {
 
     defineSatConstraints(level: any) {
         this.solver = new Logic.Solver()
-        const graph: { V: Record<string, { type: number, color: string, neighbours: string[] }>, E: Set<string> } = level.graph;
-        for (let [cell, cellData] of Object.entries(graph.V)) {
-            const neighbouringEdges = cellData.neighbours.map(n => this._edgeFromNodes(cell, n));
+        const graph: Graph = level.graph;
 
-            if (!isNaN(cellData.type)) {
-                // Known type/color of special cells
-                this.solver.require(`${cell},${cellData.color || "INVERT"}`);
-                this.solver.forbid(this.colors.filter(c => c !== cellData.color).map(c => `${cell},${c}`));
-
-                if ([this.types.START, this.types.END].includes(cellData.type)) {
-                    // forbid start/end cells to become invert cells
-                    this.solver.forbid(`${cell},INVERT`);
-
-                    // exactly one edge same color
-                    this.solver.require(Logic.exactlyOne(
-                        neighbouringEdges.map(e => `${e},${cellData.color}`)
-                    ));
-
-                    neighbouringEdges.forEach(e => {
-                        // forbid terminal edges to have non terminal color
-                        this.solver.forbid(this.colors.filter(c => c !== cellData.color).map(c => `${e},${c}`))
-                    })
-                    continue;
-                }
-
-                // invert cells need to have a negative color edge for each color edge
-                neighbouringEdges.forEach(e => {
-                    this.colors.forEach(c => {
-                        this.solver.require(Logic.equiv(
-                            `${e},${c}`,
-                            Logic.or(neighbouringEdges
-                                .filter(e2 => e2 !== e)
-                                .map(e2 => `${e2}${this._find_negative_color(c)}`)
-                            )))
-                    })
-                })
-
-                // forbid invert cells to have a color
-                this.solver.forbid(this.colors.map(c => `${cell},${c}`))
-
-            } else {
-                // forbid empty cells to become invert cells
-                this.solver.forbid(`${cell},INVERT`);
-
-                // one color per empty cell
-                this.solver.require(Logic.exactlyOne(this.colors.map(c => `${cell},${c}`)));
-
-                const ensureSetsOfTwo = []
-                const atleastTwo = []
-                // at least 2 edges of the color of the cell
-                this.colors.forEach(c => {
-                    atleastTwo.push(Logic.equiv(
-                        `${cell},${c}`,
-                        combinations(neighbouringEdges, neighbouringEdges.length - 1, neighbouringEdges.length - 1)
-                            .map(tuple => Logic.or(tuple.map(e => `${e},${c}`)))
-                    ));
-
-                    if (neighbouringEdges.length === 4) {
-                        // if it has different color edges they must be sets of 2
-                        ensureSetsOfTwo.push(...neighbouringEdges.map(e => Logic.equiv(
-                            `${e},${c}`,
-                            Logic.or(neighbouringEdges.filter(e2 => e2 !== e).map(e2 => `${e2}${c}`))
-                        )));
-                    }
-
-
-                })
-                if (ensureSetsOfTwo.length) {
-                    this.solver.require(ensureSetsOfTwo);
-                }
-                this.solver.require(atleastTwo);
-            }
-        }
-
-        for (let edge of graph.E.values()) {
-            // at most one color per edge
-            this.solver.require(Logic.atMostOne(...this.colors.map(c => `${edge},${c}`)));
-        }
-
-        return this.solver.solve();
+        this._edgeClauses(graph);
+        this._terminalCellClauses(graph);
+        this._inversionCellClauses(graph);
+        this._normalCellClauses(graph);
     }
 
     solveBoard() {
+        this.solution = this.solver.solve();
         if (!this.solution) {
             console.log("UNSOLVABLE");
             return;
@@ -192,6 +119,120 @@ export class AppComponent implements OnInit {
 
             return sol;
         }, {});
+    }
+
+    private _edgeClauses(graph: Graph) {
+        for (const edge of graph.E.values()) {
+            // at most one color per edge
+            this.solver.require(Logic.atMostOne(this.colors.map(c => `${edge},${c}`)));
+            // every cell connected by this edge must either be terminal or have another edge of the same/derived/negative color
+            const edgeCells = this._nodesFromEdge(edge);
+            this.colors.forEach(c => {
+                edgeCells.forEach(cell => {
+                    const neighbouringEdges = graph.V[cell]?.neighbours
+                        .map(n => this._edgeFromNodes(cell, n))
+                        .filter(e => e !== edge);
+
+                    switch (graph.V[cell]?.type) {
+                        case this.types.START:
+                        case this.types.END:
+                            break;
+                        case this.types.NEGATIVE:
+                            this.solver.require(Logic.implies(
+                                `${edge},${c}`,
+                                Logic.or(neighbouringEdges.map(e => `${e},${this._find_negative_color(c)}`))
+                            ));
+                            break;
+                        default:
+                            this.solver.require(Logic.implies(
+                                `${edge},${c}`,
+                                Logic.or(neighbouringEdges.map(e => `${e},${c}`))
+                            ));
+
+                    }
+                })
+            })
+        }
+    }
+
+    private _normalCellClauses(graph: Graph) {
+
+        for (const [cell, cellData] of Object.entries(graph.V)) {
+            if (!!cellData.type) {
+                continue;
+            }
+            const neighbouringEdges = cellData.neighbours.map(n => this._edgeFromNodes(cell, n))
+
+            // forbid empty cells to become invert cells
+            this.solver.forbid(`${cell},INVERT`);
+            // one color per empty cell
+            this.solver.require(Logic.exactlyOne(this.colors.map(c => `${cell},${c}`)));
+
+            this.colors.forEach(c => {
+                // at least 2 edges of the color of the cell
+                this.solver.require(Logic.equiv(
+                    `${cell},${c}`,
+                    Logic.and(combinations(neighbouringEdges, neighbouringEdges.length - 1, neighbouringEdges.length - 1)
+                        .map(tuple => Logic.or(tuple.map(e => `${e},${c}`)))
+                )));
+            })
+        }
+    }
+
+    private _inversionCellClauses(graph: Graph) {
+        for (const [cell, cellData] of Object.entries(graph.V)) {
+            if (cellData.type !== this.types.NEGATIVE) {
+                continue;
+            }
+            const neighbouringEdges = cellData.neighbours.map(n => this._edgeFromNodes(cell, n))
+            // cell must be of invert type
+            this.solver.require(`${cell},INVERT`);
+            // forbid cell to have color
+            this.solver.forbid(this.colors.map(c => `${cell},${c}`));
+            // invert cells need to have a negative color edge for each color edge
+            neighbouringEdges.forEach(e => {
+                this.colors.forEach(c => {
+                    this.solver.require(Logic.equiv(
+                        `${e},${c}`,
+                        Logic.or(neighbouringEdges
+                            .filter(e2 => e2 !== e)
+                            .map(e2 => `${e2}${this._find_negative_color(c)}`)
+                        )))
+                })
+            })
+        }
+    }
+
+    private _terminalCellClauses(graph: Graph) {
+        for (const [cell, cellData] of Object.entries(graph.V)) {
+            if (![this.types.END, this.types.START].includes(cellData.type)) {
+                continue;
+            }
+
+            const neighbouringEdges = cellData.neighbours.map(n => this._edgeFromNodes(cell, n))
+
+            // forbid cell to become inverted
+            this.solver.forbid(`${cell},INVERT`);
+            // assert known cell color
+            this.solver.require(`${cell},${cellData.color}`);
+            // forbid cell to be any other color
+            this.solver.forbid(this.colors.filter(c => c !== cellData.color).map(c => `${cell},${c}`));
+
+            // exactly one edge of cell color
+            this.solver.require(Logic.exactlyOne(neighbouringEdges.map(e => `${e},${cellData.color}`)))
+            // forbid every other edge to have any color
+            neighbouringEdges.forEach(e => {
+                this.solver.forbid(Logic.equiv(
+                    `${e},${cellData.color}`,
+                    Logic.or(
+                        flattenDeep(neighbouringEdges
+                            .filter(e2 => e2 !== e)
+                            .map(e2 => this.colors
+                                .map(c => `${e2},${c}`)))
+                    )
+                ))
+            })
+        }
     }
 
     private _isValidNeighbour(v: number[]) {
