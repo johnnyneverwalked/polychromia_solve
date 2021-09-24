@@ -192,7 +192,7 @@ export class AppComponent implements OnInit {
             // invert cells need to have a negative color edge for each color edge
             neighbouringEdges.forEach(e => {
                 this.colors.forEach(c => {
-                    this.solver.require(Logic.equiv(
+                    this.solver.require(Logic.implies(
                         `${e},${c}`,
                         Logic.or(neighbouringEdges
                             .filter(e2 => e2 !== e)
