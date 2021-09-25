@@ -34,7 +34,7 @@ export class AppComponent implements OnInit {
         BR: "┌",
     };
     public readonly colors = [
-        "RED", "BLUE", "YELLOW", "PURPLE", "GREEN", "ORANGE", "BLACK", "WHITE"
+        "RED", "BLUE", "YELLOW", "PURPLE", "GREEN", "ORANGE", "WHITE", "BLACK"
     ];
 
     public level: any = {};
@@ -88,10 +88,10 @@ export class AppComponent implements OnInit {
         this.solver = new Logic.Solver()
         const graph: Graph = level.graph;
 
-        this._edgeClauses(graph);
         this._terminalCellClauses(graph);
         this._inversionCellClauses(graph);
         this._normalCellClauses(graph);
+        this._edgeClauses(graph);
     }
 
     solveBoard() {
@@ -107,7 +107,7 @@ export class AppComponent implements OnInit {
             .filter(v => v.startsWith("e_"));
 
         this.level.solution = reduce(cells, (sol, cell) => {
-            sol.colors[`${cell[0]},${cell[1]}`] = cell[2];
+            sol.colors[`${cell[0]},${cell[1]}`] = cell[2].replace("WHITE", "GRAY");
 
             return sol;
         }, {colors: {}});
@@ -115,7 +115,9 @@ export class AppComponent implements OnInit {
         this.level.solution.edges = reduce(edges, (sol, e) => {
             const key = e.split(",");
             const color = key.pop();
-            sol[key.join(",")] = color;
+            if (this.colors.includes(color)) {
+                sol[key.join(",")] = color.replace("WHITE", "GRAY");
+            }
 
             return sol;
         }, {});
@@ -124,7 +126,7 @@ export class AppComponent implements OnInit {
     private _edgeClauses(graph: Graph) {
         for (const edge of graph.E.values()) {
             // at most one color per edge
-            this.solver.require(Logic.atMostOne(this.colors.map(c => `${edge},${c}`)));
+            this.solver.require(Logic.exactlyOne(...this.colors.map(c => `${edge},${c}`), `${edge},null`));
             // every cell connected by this edge must either be terminal or have another edge of the same/derived/negative color
             const edgeCells = this._nodesFromEdge(edge);
             this.colors.forEach(c => {
@@ -144,13 +146,43 @@ export class AppComponent implements OnInit {
                             ));
                             break;
                         default:
+                            const edgeColorBasedOnCell = [];
+                            this.colors.forEach(c2 => {
+                                edgeColorBasedOnCell.push(Logic.implies(
+                                    `${cell},${c2}`,
+                                    Logic.or(neighbouringEdges.map(e => {
+                                        const derived = this._find_derived_color(c, c2);
+                                        const components = this._find_color_components(c);
+
+                                        const componentClauses = components.map(cmp => Logic.and(
+                                            `${e},${cmp}`,
+                                            Logic.or(flattenDeep(components
+                                                .filter(cmp2 => cmp2 !== cmp)
+                                                .map(cmp2 => neighbouringEdges
+                                                    .filter(e2 => e2 !== e)
+                                                    .map(e2 => `${e2},${cmp2}`))
+                                            ))
+                                        ))
+                                        return Logic.or([...componentClauses, `${e},${derived}`]);
+                                    }))
+                                ))
+                            })
                             this.solver.require(Logic.implies(
                                 `${edge},${c}`,
-                                Logic.or(neighbouringEdges.map(e => `${e},${c}`))
+                                Logic.and(...edgeColorBasedOnCell)
                             ));
 
                     }
                 })
+
+                this.solver.require(Logic.implies(
+                    `${edge},${c}`,
+                    Logic.or(edgeCells.map(cell => Logic.exactlyOne(
+                        `${cell},${c}`,
+                        `${cell},INVERT`,
+                        ...this._find_color_components(c).map(cmp => `${cell},${cmp}`)
+                    )))
+                ));
             })
         }
     }
@@ -174,8 +206,10 @@ export class AppComponent implements OnInit {
                     `${cell},${c}`,
                     Logic.and(combinations(neighbouringEdges, neighbouringEdges.length - 1, neighbouringEdges.length - 1)
                         .map(tuple => Logic.or(tuple.map(e => `${e},${c}`)))
-                )));
+                    )));
             })
+
+            this._coloredEdgesSetsOfTwo(neighbouringEdges);
         }
     }
 
@@ -196,10 +230,11 @@ export class AppComponent implements OnInit {
                         `${e},${c}`,
                         Logic.or(neighbouringEdges
                             .filter(e2 => e2 !== e)
-                            .map(e2 => `${e2}${this._find_negative_color(c)}`)
+                            .map(e2 => `${e2},${this._find_negative_color(c)}`)
                         )))
                 })
             })
+            this._coloredEdgesSetsOfTwo(neighbouringEdges);
         }
     }
 
@@ -220,18 +255,45 @@ export class AppComponent implements OnInit {
 
             // exactly one edge of cell color
             this.solver.require(Logic.exactlyOne(neighbouringEdges.map(e => `${e},${cellData.color}`)))
-            // forbid every other edge to have any color
             neighbouringEdges.forEach(e => {
-                this.solver.forbid(Logic.equiv(
+                // forbid every other edge to have any color
+                this.solver.require(Logic.equiv(
                     `${e},${cellData.color}`,
-                    Logic.or(
-                        flattenDeep(neighbouringEdges
-                            .filter(e2 => e2 !== e)
-                            .map(e2 => this.colors
-                                .map(c => `${e2},${c}`)))
+                    Logic.and(neighbouringEdges
+                        .filter(e2 => e2 !== e)
+                        .map(e2 => `${e2},null`)
                     )
-                ))
+                    )
+                )
+
+                if (cellData.type === this.types.END) {
+                    // neighbour connected to the edge must have same/derived color or be invert cell
+                    const neighbour = this._nodesFromEdge(e).find(n => n !== cell);
+                    this.solver.require(Logic.implies(
+                        `${e},${cellData.color}`,
+                        Logic.or(
+                            `${neighbour},${cellData.color}`,
+                            `${neighbour},INVERT`,
+                            ...this._find_color_components(cellData.color)
+                                .map(cmp => `${neighbour},${cmp}`)
+                        )
+                    ))
+                }
             })
+        }
+    }
+
+    private _coloredEdgesSetsOfTwo(edges: string[]) {
+
+        // colored edges must be sets of two
+        if (edges.length === 3) {
+            this.solver.require(Logic.exactlyOne(edges.map(e => `${e},null`)));
+        } else if (edges.length === 4) {
+            this.solver.require(Logic.or(
+                Logic.and(edges.map(e => `-${e},null`)),
+                Logic.and(combinations(edges, edges.length - 1, edges.length - 1)
+                    .map(tuple => Logic.or(tuple.map(e => `${e},null`))))
+            ))
         }
     }
 
@@ -281,6 +343,20 @@ export class AppComponent implements OnInit {
         }
 
         return "BLACK"
+    }
+
+    private _find_color_components(color) {
+        switch (color) {
+            case "GREEN":
+                return ["YELLOW", "BLUE"];
+            case "PURPLE":
+                return ["BLUE", "RED"];
+            case "ORANGE":
+                return ["YELLOW", "RED"];
+            case "BLACK":
+                return this.colors.slice(0, 7);
+        }
+        return [];
     }
 
     private _find_negative_color(color) {

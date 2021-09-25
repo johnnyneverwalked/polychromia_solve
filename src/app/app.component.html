@@ -18,12 +18,22 @@
 
     <div class="row ml-1" [class.mt-2]="!j" *ngFor="let col of level.grid_size[1]|NumberNgFor; let j = index">
 
-        <div class="col p-0 cell d-inline-block m-1 text-center"
+        <div class="col p-0 cell d-inline-block m-1 text-center position-relative"
              [ngStyle]="{
                 borderColor: level.solution?.colors[i + ',' + j]?.toLowerCase(),
                 color: level.cells[i + ',' + j]?.color.toLowerCase()
              }"
              *ngFor="let row of level.grid_size[0]|NumberNgFor; let i = index">
+
+            <i *ngFor="let dir of dirs.LR.concat(dirs.TB)"
+               [hidden]="!level.solution?.edges['e_CELL'+i+','+j + '_CELL'+(i + dir[0])+','+(j + dir[1])]"
+               [ngStyle]="{
+                    top: (dir[1] + 1) * 32 - 8 + 'px',
+                    left: (dir[0] + 1) * 32 - 8 + 'px',
+                    color: level.solution?.edges['e_CELL'+i+','+j + '_CELL'+(i + dir[0])+','+(j + dir[1])]?.toLowerCase()
+                  }"
+               class="position-absolute la la-square-full">
+            </i>
 
             <ng-container [ngSwitch]="level.cells[i + ',' + j]?.type">
                 <i class="la la-2x la-adjust" *ngSwitchCase="types.NEGATIVE"></i>
