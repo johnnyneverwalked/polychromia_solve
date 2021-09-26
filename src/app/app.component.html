@@ -20,7 +20,7 @@
 
         <div class="col p-0 cell d-inline-block m-1 text-center position-relative"
              [ngStyle]="{
-                borderColor: level.solution?.colors[i + ',' + j]?.toLowerCase(),
+                borderColor: level.solution?.colors[i + ',' + j]?.replace('INVERT', '').toLowerCase(),
                 color: level.cells[i + ',' + j]?.color.toLowerCase()
              }"
              *ngFor="let row of level.grid_size[0]|NumberNgFor; let i = index">

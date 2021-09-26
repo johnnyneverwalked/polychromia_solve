@@ -1,6 +1,6 @@
 import {Component, OnInit} from '@angular/core';
 import {levels} from "src/levels"
-import {reduce, cloneDeep, flattenDeep} from "lodash";
+import {reduce, cloneDeep, flattenDeep, uniq} from "lodash";
 import * as Logic from "logic-solver"
 import * as combinations from "combinations";
 
@@ -96,15 +96,38 @@ export class AppComponent implements OnInit {
 
     solveBoard() {
         this.solution = this.solver.solve();
+        let cycle = false;
+        let vars;
+        do {
+            vars = this.solution.getTrueVars();
+            for (const cell in this.level.graph.V) {
+                const coords = cell.replace("CELL", "").split(",").map(coord => Number(coord));
+                const cellEdges = [
+                    this._edgeFromNodes(cell, `CELL${coords[0] + 1},${coords[1]}`),
+                    this._edgeFromNodes(cell, `CELL${coords[0]},${coords[1] + 1}`),
+                    this._edgeFromNodes(`CELL${coords[0] + 1},${coords[1]}`, `CELL${coords[0] + 1},${coords[1] + 1}`),
+                    this._edgeFromNodes(`CELL${coords[0]},${coords[1] + 1}`,  `CELL${coords[0] + 1},${coords[1] + 1}`),
+                ]
+
+                const edgeVars = vars?.filter(e => cellEdges.some(edge => e.includes(edge)) && !e.includes("null"));
+                cycle = edgeVars.length === 4 && uniq(edgeVars.map(e => e.split(",").pop())).length === 1;
+
+                if (cycle) {
+                    // iteratively prevent circles from happening
+                    this.solution = this.solver.solveAssuming(Logic.or(edgeVars.map(e => `-${e}`)));
+                    break;
+                }
+            }
+        } while (cycle)
+
         if (!this.solution) {
             console.log("UNSOLVABLE");
             return;
         }
-        const cells = this.solution.getTrueVars()
+        const cells = vars
             .filter(v => v.startsWith("CELL"))
             .map((v: string) => v.replace("CELL", "").split(","))
-        const edges = this.solution.getTrueVars()
-            .filter(v => v.startsWith("e_"));
+        const edges = vars.filter(v => v.startsWith("e_"));
 
         this.level.solution = reduce(cells, (sol, cell) => {
             sol.colors[`${cell[0]},${cell[1]}`] = cell[2].replace("WHITE", "GRAY");
@@ -124,9 +147,15 @@ export class AppComponent implements OnInit {
     }
 
     private _edgeClauses(graph: Graph) {
+        // prevent the existence of black/white if there are no black/white endpoints
+        const forbidBlack = !Object.values(graph.V).some(cell => this.colors.slice(-2).includes(cell.color));
         for (const edge of graph.E.values()) {
             // at most one color per edge
             this.solver.require(Logic.exactlyOne(...this.colors.map(c => `${edge},${c}`), `${edge},null`));
+            if (forbidBlack) {
+                this.solver.forbid(`${edge},BLACK`)
+            }
+
             // every cell connected by this edge must either be terminal or have another edge of the same/derived/negative color
             const edgeCells = this._nodesFromEdge(edge);
             this.colors.forEach(c => {
