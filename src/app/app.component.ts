@@ -153,6 +153,11 @@ export class AppComponent implements OnInit {
     private _edgeClauses(graph: Graph) {
         // prevent the existence of black/white if there are no black/white endpoints
         const forbidBlack = !Object.values(graph.V).some(cell => this.colors.slice(-2).includes(cell.color));
+
+        const roots = Object.values(graph.V)
+            .filter(data => data.type === this.types.START)
+            .map(data => `ROOT_${data.cellKey}`)
+
         for (const edge of graph.E.values()) {
             // at most one color per edge
             this.solver.require(Logic.exactlyOne(...this.colors.map(c => `${edge},${c}`), `${edge},null`));
@@ -161,10 +166,7 @@ export class AppComponent implements OnInit {
             }
 
             // at most one starting point connected to the edge (track the whole line)
-            this.solver.require(Logic.atMostOne(Object.values(graph.V)
-                .filter(data => data.type === this.types.START)
-                .map(data => `${edge},ROOT_${data.cellKey}`)
-            ));
+            this.solver.require(Logic.atMostOne(roots.map(root => `${edge},${root}`)));
 
             // every cell connected by this edge must either be terminal or have another edge of the same/derived/negative color
             const edgeCells = this._nodesFromEdge(edge);
