@@ -72,8 +72,10 @@ export class AppComponent implements OnInit {
             for (let i = 0; i < level.grid_size[0]; i++) {
                 const v: string = `CELL${i},${j}`;
                 V[v] = {
+                    cellKey: v,
                     color: this.level.cells[v.replace("CELL", "")]?.color,
                     type: this.level.cells[v.replace("CELL", "")]?.type,
+                    coords: [i, j],
                     neighbours: [...this.dirs.LR, ...this.dirs.TB]
                         .filter(dir => this._isValidNeighbour([i + dir[0], j + dir[1]]))
                         .map(dir => `CELL${i + dir[0]},${j + dir[1]}`)
@@ -100,21 +102,23 @@ export class AppComponent implements OnInit {
         let vars;
         do {
             vars = this.solution.getTrueVars();
-            for (const cell in this.level.graph.V) {
-                const coords = cell.replace("CELL", "").split(",").map(coord => Number(coord));
-                const cellEdges = [
-                    this._edgeFromNodes(cell, `CELL${coords[0] + 1},${coords[1]}`),
-                    this._edgeFromNodes(cell, `CELL${coords[0]},${coords[1] + 1}`),
-                    this._edgeFromNodes(`CELL${coords[0] + 1},${coords[1]}`, `CELL${coords[0] + 1},${coords[1] + 1}`),
-                    this._edgeFromNodes(`CELL${coords[0]},${coords[1] + 1}`,  `CELL${coords[0] + 1},${coords[1] + 1}`),
-                ]
+            for (const v of vars) {
+                if (v.startsWith("e_")) {
+                    continue;
+                }
 
-                const edgeVars = vars?.filter(e => cellEdges.some(edge => e.includes(edge)) && !e.includes("null"));
-                cycle = edgeVars.length === 4 && uniq(edgeVars.map(e => e.split(",").pop())).length === 1;
+                const node = v.split(",").slice(0, -1).join(",");
+                const color = v.split(",").pop();
+                const visited = [];
 
+                cycle = this._detectCycle(this.level.graph, node, null, color, visited, vars);
                 if (cycle) {
-                    // iteratively prevent circles from happening
-                    this.solution = this.solver.solveAssuming(Logic.or(edgeVars.map(e => `-${e}`)));
+                    const relevantEdges = combinations(visited, 2, 2)
+                        .map(nodes => `${this._edgeFromNodes(nodes[0], nodes[1])},${color}`)
+                        .filter(edge => vars.includes(edge));
+                    if (relevantEdges.length) {
+                        this.solution = this.solver.solveAssuming(Logic.or(relevantEdges.map(edge => Logic.not(edge))));
+                    }
                     break;
                 }
             }
@@ -155,6 +159,12 @@ export class AppComponent implements OnInit {
             if (forbidBlack) {
                 this.solver.forbid(`${edge},BLACK`)
             }
+
+            // at most one starting point connected to the edge (track the whole line)
+            this.solver.require(Logic.atMostOne(Object.values(graph.V)
+                .filter(data => data.type === this.types.START)
+                .map(data => `${edge},ROOT_${data.cellKey}`)
+            ));
 
             // every cell connected by this edge must either be terminal or have another edge of the same/derived/negative color
             const edgeCells = this._nodesFromEdge(edge);
@@ -292,8 +302,14 @@ export class AppComponent implements OnInit {
                         .filter(e2 => e2 !== e)
                         .map(e2 => `${e2},null`)
                     )
-                    )
-                )
+                ))
+
+                if (cellData.type === this.types.START) {
+                    this.solver.require(Logic.equiv(
+                        `${e},${cellData.color}`,
+                        `${e},ROOT_${cell}`
+                    ))
+                }
 
                 if (cellData.type === this.types.END) {
                     // neighbour connected to the edge must have same/derived color or be invert cell
@@ -417,10 +433,39 @@ export class AppComponent implements OnInit {
     private _nodesFromEdge(e: string): string[] {
         return e.split("_").splice(1);
     }
+
+    private _detectCycle(graph: Graph, node: string, parent: string, color: string, visited: string[], solvedVars: string[]) {
+        if (!graph.V.hasOwnProperty(node)) {
+            return false;
+        }
+        const nodeData = graph.V[node]
+        // if node is already visited we have a cycle
+        if (visited.includes(node)) {
+            return true;
+        }
+        visited.push(node);
+
+        // parent is already visited so dont check again, check only neighbours with correct edges
+        const neighbours = nodeData.neighbours
+            .filter(n => n !== parent
+                && solvedVars.includes(`${this._edgeFromNodes(n, node)},${color}`));
+
+        for (const n of neighbours) {
+            if (this._detectCycle(graph, n, node, color, visited, solvedVars)) {
+                return true;
+            }
+        }
+
+        // if the path does not contain a cycle remove node from visited
+        visited.splice(visited.indexOf(node), 1);
+        return false;
+    }
 }
 
 interface Graph {
     V: Record<string, {
+        cellKey: string,
+        coords: number[],
         type?: number,
         color?: string,
         neighbours?: string[]
