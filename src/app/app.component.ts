@@ -41,6 +41,8 @@ export class AppComponent implements OnInit {
     public solver: any;
     public solution: any;
 
+    public highlightedCell: string;
+
     ngOnInit() {
         this.nextLevel();
     }
@@ -99,26 +101,35 @@ export class AppComponent implements OnInit {
     solveBoard() {
         this.solution = this.solver.solve();
         let cycle = false;
-        let vars;
+        let vars = [];
+        let checkedNodes = [];
+        let visited = [];
         do {
-            vars = this.solution.getTrueVars();
+            vars = this.solution?.getTrueVars() || [];
+            checkedNodes = []
             for (const v of vars) {
                 if (v.startsWith("e_")) {
                     continue;
                 }
 
                 const node = v.split(",").slice(0, -1).join(",");
-                const color = v.split(",").pop();
-                const visited = [];
-
-                cycle = this._detectCycle(this.level.graph, node, null, color, visited, vars);
-                if (cycle) {
-                    const relevantEdges = combinations(visited, 2, 2)
-                        .map(nodes => `${this._edgeFromNodes(nodes[0], nodes[1])},${color}`)
-                        .filter(edge => vars.includes(edge));
-                    if (relevantEdges.length) {
-                        this.solution = this.solver.solveAssuming(Logic.or(relevantEdges.map(edge => Logic.not(edge))));
+                const rootsToCheck = uniq(vars.filter(e => e.includes("ROOT") && e.includes(node)).map(e => e.split("ROOT_").pop()));
+                for (const root of rootsToCheck) {
+                    visited = [];
+                    cycle = this._detectCycle(this.level.graph, node, null, root, visited, checkedNodes.filter(cn => cn.root === root).map(cn => cn.n), vars);
+                    if (cycle) {
+                        const relevantEdges = uniq(combinations(visited, 2, 2)
+                            .map(nodes => `${this._edgeFromNodes(nodes[0], nodes[1])},ROOT_${root}`))
+                            .filter(edge => vars.includes(edge));
+                        if (relevantEdges.length) {
+                            console.log(vars.length, uniq(vars).length);
+                            this.solution = this.solver.solveAssuming(Logic.or(relevantEdges.map(edge => Logic.not(edge))));
+                        }
+                        break;
                     }
+                    checkedNodes.push(...visited.map(n => ({n, root})));
+                }
+                if (cycle) {
                     break;
                 }
             }
@@ -148,6 +159,15 @@ export class AppComponent implements OnInit {
 
             return sol;
         }, {});
+
+        this.level.solution.roots = reduce(edges.filter(edge => edge.includes("ROOT")), (sol, e) => {
+            const key = e.split(",ROOT_");
+            const root = key.pop();
+
+            sol[key] = root;
+            return sol;
+
+        }, {});
     }
 
     private _edgeClauses(graph: Graph) {
@@ -165,8 +185,11 @@ export class AppComponent implements OnInit {
                 this.solver.forbid(`${edge},BLACK`)
             }
 
-            // at most one starting point connected to the edge (track the whole line)
-            this.solver.require(Logic.atMostOne(roots.map(root => `${edge},${root}`)));
+            // if colored one starting point must be connected to the edge (track the whole line)
+            this.solver.require(Logic.equiv(
+                Logic.not(`${edge},null`),
+                Logic.exactlyOne(roots.map(root => `${edge},${root}`)))
+            );
 
             // every cell connected by this edge must either be terminal or have another edge of the same/derived/negative color
             const edgeCells = this._nodesFromEdge(edge);
@@ -185,15 +208,22 @@ export class AppComponent implements OnInit {
                                 `${edge},${c}`,
                                 Logic.or(neighbouringEdges.map(e => `${e},${this._find_negative_color(c)}`))
                             ));
+
+                            roots.forEach(root => this.solver.require(Logic.implies(
+                                Logic.and(`${edge},${root}`, `${edge},${c}`),
+                                Logic.exactlyOne(neighbouringEdges.map(e => Logic.and(`${e},${root}`, `${e},${this._find_negative_color(c)}`)))
+                            )))
                             break;
                         default:
+
+                            const components = this._find_color_components(c);
                             const edgeColorBasedOnCell = [];
+
                             this.colors.forEach(c2 => {
                                 edgeColorBasedOnCell.push(Logic.implies(
                                     `${cell},${c2}`,
                                     Logic.or(neighbouringEdges.map(e => {
                                         const derived = this._find_derived_color(c, c2);
-                                        const components = this._find_color_components(c);
 
                                         const componentClauses = components.map(cmp => Logic.and(
                                             `${e},${cmp}`,
@@ -212,6 +242,17 @@ export class AppComponent implements OnInit {
                                 `${edge},${c}`,
                                 Logic.and(...edgeColorBasedOnCell)
                             ));
+
+                            roots.forEach(root => this.solver.require(Logic.implies(
+                                Logic.and(`${edge},${root}`, `${edge},${c}`),
+                                Logic.exactlyOne(neighbouringEdges.map(e => Logic.and(
+                                    `${e},${root}`,
+                                    Logic.or(
+                                        Logic.and(...this.colors.map(c2 => Logic.implies(`${cell},${c2}`, `${e},${this._find_derived_color(c, c2)}`))),
+                                        ...components.map(cmp => `${e},${cmp}`)
+                                    )
+                                )))
+                            )));
 
                     }
                 })
@@ -280,6 +321,11 @@ export class AppComponent implements OnInit {
     }
 
     private _terminalCellClauses(graph: Graph) {
+
+        const roots = Object.values(graph.V)
+            .filter(data => data.type === this.types.START)
+            .map(data => `ROOT_${data.cellKey}`)
+
         for (const [cell, cellData] of Object.entries(graph.V)) {
             if (![this.types.END, this.types.START].includes(cellData.type)) {
                 continue;
@@ -307,6 +353,7 @@ export class AppComponent implements OnInit {
                 ))
 
                 if (cellData.type === this.types.START) {
+                    // require the correct edge to have the root
                     this.solver.require(Logic.equiv(
                         `${e},${cellData.color}`,
                         `${e},ROOT_${cell}`
@@ -325,6 +372,13 @@ export class AppComponent implements OnInit {
                                 .map(cmp => `${neighbour},${cmp}`)
                         )
                     ))
+
+                    // the connecting edge must have a root (prevents end cells to connect to themselves)
+                    this.solver.require(Logic.equiv(
+                        `${e},${cellData.color}`,
+                        Logic.exactlyOne(roots.map(root => `${e},${root}`))
+                    ))
+
                 }
             })
         }
@@ -436,7 +490,7 @@ export class AppComponent implements OnInit {
         return e.split("_").splice(1);
     }
 
-    private _detectCycle(graph: Graph, node: string, parent: string, color: string, visited: string[], solvedVars: string[]) {
+    private _detectCycle(graph: Graph, node: string, parent: string, root: string, visited: string[], checkedNodes: string[], solvedVars: string[]) {
         if (!graph.V.hasOwnProperty(node)) {
             return false;
         }
@@ -450,10 +504,11 @@ export class AppComponent implements OnInit {
         // parent is already visited so dont check again, check only neighbours with correct edges
         const neighbours = nodeData.neighbours
             .filter(n => n !== parent
-                && solvedVars.includes(`${this._edgeFromNodes(n, node)},${color}`));
+                && !checkedNodes.includes(n)
+                && solvedVars.includes(`${this._edgeFromNodes(n, node)},ROOT_${root}`));
 
         for (const n of neighbours) {
-            if (this._detectCycle(graph, n, node, color, visited, solvedVars)) {
+            if (this._detectCycle(graph, n, node, root, visited, checkedNodes, solvedVars)) {
                 return true;
             }
         }

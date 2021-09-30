@@ -19,6 +19,8 @@
     <div class="row ml-1" [class.mt-2]="!j" *ngFor="let col of level.grid_size[1]|NumberNgFor; let j = index">
 
         <div class="col p-0 cell d-inline-block m-1 text-center position-relative"
+             (mouseenter)="highlightedCell = 'CELL' + i + ',' + j"
+             (mouseleave)="highlightedCell = null"
              [ngStyle]="{
                 borderColor: level.solution?.colors[i + ',' + j]?.replace('INVERT', '').toLowerCase(),
                 color: level.cells[i + ',' + j]?.color.toLowerCase()
@@ -30,7 +32,9 @@
                [ngStyle]="{
                     top: (dir[1] + 1) * 32 - 8 + 'px',
                     left: (dir[0] + 1) * 32 - 8 + 'px',
-                    color: level.solution?.edges['e_CELL'+i+','+j + '_CELL'+(i + dir[0])+','+(j + dir[1])]?.toLowerCase()
+                    color: level.solution?.roots['e_CELL'+i+','+j + '_CELL'+(i + dir[0])+','+(j + dir[1])] === highlightedCell
+                        ? 'cyan'
+                        : level.solution?.edges['e_CELL'+i+','+j + '_CELL'+(i + dir[0])+','+(j + dir[1])]?.toLowerCase()
                   }"
                class="position-absolute la la-square-full">
             </i>
