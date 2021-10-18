@@ -104,48 +104,6 @@ export const levels = [
         "cells": [
             {
                 "color": "YELLOW",
-                "position": "(1, 0)",
-                "type": 1
-            },
-            {
-                "color": "GREEN",
-                "position": "(2, 0)",
-                "type": 1
-            },
-            {
-                "color": "RED",
-                "position": "(0, 0)",
-                "type": 1
-            },
-            {
-                "color": "GREEN",
-                "position": "(3, 3)",
-                "type": 2
-            },
-            {
-                "color": "ORANGE",
-                "position": "(0, 3)",
-                "type": 2
-            },
-            {
-                "color": "WHITE",
-                "position": "(3, 0)",
-                "type": 2
-            },
-            {
-                "color": "",
-                "position": "(3, 2)",
-                "type": 3
-            }
-        ],
-        "completed": true,
-        "grid_size": "(4, 4)",
-        "locked": false
-    },
-    {
-        "cells": [
-            {
-                "color": "YELLOW",
                 "position": "(2, 1)",
                 "type": 1
             },
