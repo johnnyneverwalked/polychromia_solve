@@ -1,7 +1,8 @@
 import {Graph} from "../interfaces/Graph";
 import {reduce, cloneDeep, flattenDeep, uniq} from "lodash";
 import * as Logic from "logic-solver"
-import * as combinations from "combinations";
+// @ts-ignore necessary for the ts-node generator script
+const combinations = require("combinations");
 import {colors, dirs, types} from "../interfaces/Generics";
 
 export class Solver {
@@ -70,6 +71,7 @@ export class Solver {
         let vars = [];
         let checkedNodes = [];
         let visited = [];
+        let cycleDetectionLimiter = 0;
         do {
             vars = this.solution?.getTrueVars() || [];
             checkedNodes = []
@@ -98,7 +100,11 @@ export class Solver {
                     break;
                 }
             }
-        } while (cycle)
+        } while (cycle && cycleDetectionLimiter++ < 20)
+
+        if (cycle) {
+            return null;
+        }
 
         return this.solution;
     }
@@ -327,7 +333,7 @@ export class Solver {
         }
     }
 
-    private _isValidNeighbour(v: number[]) {
+    _isValidNeighbour(v: number[]) {
         if (!this.level.grid_size) {
             return false;
         }
@@ -389,7 +395,7 @@ export class Solver {
         return [];
     }
 
-    private _find_negative_color(color) {
+    _find_negative_color(color) {
         switch (color) {
             case "RED":
                 return "GREEN";

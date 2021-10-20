@@ -1,5 +1,6 @@
 import {Component, OnInit} from '@angular/core';
 import {levels} from "src/levels"
+// import * as levels from "levels_4x4.json";
 import {reduce, cloneDeep} from "lodash";
 import {Solver} from "./core/classes/Solver";
 import {colors, dirs, types} from "./core/interfaces/Generics";
@@ -11,7 +12,8 @@ import {colors, dirs, types} from "./core/interfaces/Generics";
 })
 export class AppComponent implements OnInit {
     title = 'polychromia-gen';
-    public readonly levels = levels;
+    // @ts-ignore
+    public readonly levels = levels.solvable ?? levels;
     public readonly dirs = dirs;
     public readonly types = types;
 
@@ -31,7 +33,7 @@ export class AppComponent implements OnInit {
     }
 
     nextLevel(idx: number = 0) {
-        let level: any = cloneDeep(levels[idx] ?? levels[0]);
+        let level: any = cloneDeep(this.levels[idx] ?? this.levels[0]);
         level.index = idx ?? 0;
         this.solver.level = level;
         this.level = this.solver.level;

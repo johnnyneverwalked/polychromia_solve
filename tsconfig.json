@@ -13,10 +13,11 @@
         "downlevelIteration": true,
         "experimentalDecorators": true,
         "moduleResolution": "node",
+        "esModuleInterop": true,
         "importHelpers": true,
         "resolveJsonModule": true,
         "target": "es2017",
-        "module": "es2020",
+        "module": "commonjs",
         "lib": [
             "es2018",
             "dom"
