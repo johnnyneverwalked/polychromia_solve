@@ -12,7 +12,9 @@
             <button class="mx-1 btn btn-primary btn-sm" (click)="nextLevel(level.index + 1)"
                     [disabled]="level.index >= levels.length - 1">Next
             </button>
-            <!--            <button class="mx-1 btn btn-dark btn-sm" (click)="solveBoard()">Solve</button>-->
+            <div class="d-inline-block" [ngStyle]="{maxWidth: '80px'}">
+                <input class="form-control mx-1 d-inline" #levelInput (keyup.enter)="nextLevel(levelInput.value || 0)"/>
+            </div>
         </div>
     </div>
 

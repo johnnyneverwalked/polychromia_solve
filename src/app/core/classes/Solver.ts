@@ -100,8 +100,7 @@ export class Solver {
                     break;
                 }
             }
-        } while (cycle && cycleDetectionLimiter++ < 20)
-
+        } while (cycle && cycleDetectionLimiter++ < 100)
         if (cycle) {
             return null;
         }
@@ -251,6 +250,8 @@ export class Solver {
                         )))
                 })
             })
+            // atleast one edge passes from this cell
+            this.solverInstance.require(Logic.or(flattenDeep(colors.map(c => neighbouringEdges.map(e => `${e},${c}`)))));
             this._coloredEdgesSetsOfTwo(neighbouringEdges);
         }
     }

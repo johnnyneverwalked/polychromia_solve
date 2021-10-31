@@ -1,66 +1,62 @@
+const mongo = require("mongodb").MongoClient;
+require('dotenv').config({path: require("path").join(__dirname + "/.env")})
+
 import {Solver} from "./src/app/core/classes/Solver";
 import {Generator} from "./src/app/core/classes/Generator";
-import {readFileSync, writeFileSync} from "fs";
-import {chunk, cloneDeep} from "lodash";
+import {cloneDeep} from "lodash";
 
 const generator = new Generator();
 const solver = new Solver();
+
 const options = {
-    grid: {width: 4, height: 4},
-    inversions: {min: 0, max: 1},
-    terminals: {min: 2, max: 3}
+    grid: {width: 6, height: 6},
+    inversions: {min: 1, max: 2},
+    terminals: {min: 2, max: 5}
 }
-const generateLimit = 5;
+const generateLimit = 50;
 
-let levels;
-const levelIds = [];
-const path = `levels_${options.grid.width}x${options.grid.height}.json`;
+const script = async () => {
+    const client = await mongo.connect(process.env.DB_URI);
+    const levels = client.db("dubai").collection("Levels");
 
-try {
-    levels = JSON.parse(readFileSync(path).toString("utf8"));
-    levelIds.push(
-        ...levels.solvable.map(lvl => lvl.shorthand),
-        ...levels.unsolvable.map(lvl => lvl.shorthand),
-    )
-} catch (e) {
-    console.log(`File not found, generating file for ${options.grid.width}x${options.grid.height} levels...`);
+    const levelIds = await levels.distinct("shorthand", {
+        grid_size: `(${options.grid.width}, ${options.grid.height})`
+    })
 
-    levels = {solvable: [], unsolvable: []}
-    writeFileSync(path, JSON.stringify(levels, null, 4));
-}
+    console.log(`STARTING ${options.grid.width}x${options.grid.height} LEVEL GENERATION WITH LIMIT: ${generateLimit}`);
+    console.log(`OPTIONS: `, JSON.stringify(options, null, 4));
 
-console.log(`STARTING ${options.grid.width}x${options.grid.height} LEVEL GENERATION WITH LIMIT: ${generateLimit}`);
+    let solution
+    let level
+    const start = Date.now();
+    let solvable: number = 0;
+    let unsolvable: number = 0;
+    for (let lvlGenerated = 0; lvlGenerated < generateLimit; lvlGenerated++) {
+        try {
+            do {
+                level = generator.generateLevel(options);
+                if (levelIds.includes(level.shorthand)) {
+                    console.log(`duplicate Level: ${level.shorthand}`);
+                    continue;
+                }
 
-let solution
-let level
-const start = Date.now();
-for (let lvlGenerated = 0; lvlGenerated < generateLimit; lvlGenerated++) {
-    do {
-        level = generator.generateLevel(options);
+                solver.level = cloneDeep(level);
+                solution = solver.solveBoard();
 
-        if (levelIds.includes(level.shorthand)) {
-            console.log(`duplicate Level: ${level.shorthand}`);
-            continue;
-        } else {
-            levelIds.push(level.shorthand);
+            } while (!solution)
+
+            await levels.insertOne({...level, solvable: true});
+            console.log(`ADDED ${lvlGenerated + 1} / ${generateLimit}`, Date.now() - start + "ms");
+            solvable++;
+        } catch (e) {
+            console.log(e);
         }
+    }
 
-        solver.level = cloneDeep(level);
-        solution = solver.solveBoard();
+    console.log(`Added ${solvable} solvable and ${unsolvable} unsolvable levels in ${((Date.now() - start) / 1000).toFixed(2)}s`);
+    client.close();
 
-        if (!solution) {
-            // console.log("UNSOLVABLE");
-            levels.unsolvable.push(level);
-        } else {
-            // chunk(level.shorthand.split("."), generator.grid.width)
-            //     .forEach(row => console.log(row.join(".")));
-        }
-
-    } while (!solution)
-    levels.solvable.push(level);
-    console.log(`ADDED ${lvlGenerated + 1} / ${generateLimit}`, Date.now() - start + "ms");
 }
 
-writeFileSync(path, JSON.stringify(levels, null, 4));
+script();
 
-console.log(`Added ${levels.solvable.length} solvable and ${levels.unsolvable.length} unsolvable levels in ${((Date.now() - start) / 1000).toFixed(2)}s`);

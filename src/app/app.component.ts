@@ -13,7 +13,8 @@ import {colors, dirs, types} from "./core/interfaces/Generics";
 export class AppComponent implements OnInit {
     title = 'polychromia-gen';
     // @ts-ignore
-    public readonly levels = levels.solvable ?? levels;
+    public readonly levels = levels;
+    // public readonly levels = levels.solvable;
     public readonly dirs = dirs;
     public readonly types = types;
 
@@ -32,9 +33,9 @@ export class AppComponent implements OnInit {
         this.nextLevel();
     }
 
-    nextLevel(idx: number = 0) {
+    nextLevel(idx: number|string = 0) {
         let level: any = cloneDeep(this.levels[idx] ?? this.levels[0]);
-        level.index = idx ?? 0;
+        level.index = Number(idx) ?? 0;
         this.solver.level = level;
         this.level = this.solver.level;
         this.solveBoard();
