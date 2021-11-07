@@ -56,6 +56,7 @@ export class Solver {
     }
 
     defineSatConstraints(level: any) {
+        delete this.solverInstance;
         this.solverInstance = new Logic.Solver()
         const graph: Graph = level.graph;
 

@@ -9,11 +9,11 @@ const generator = new Generator();
 const solver = new Solver();
 
 const options = {
-    grid: {width: 6, height: 6},
+    grid: {width: 5, height: 5},
     inversions: {min: 1, max: 2},
-    terminals: {min: 2, max: 5}
+    terminals: {min: 2, max: 4}
 }
-const generateLimit = 50;
+const generateLimit = 300;
 
 const script = async () => {
     const client = await mongo.connect(process.env.DB_URI);
